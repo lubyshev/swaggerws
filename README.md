@@ -1,0 +1,2 @@
+# swaggerws
+Swagger websocket plugin
