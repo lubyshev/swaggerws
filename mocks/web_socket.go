@@ -16,12 +16,34 @@ type WebSocket struct {
 
 // AssignHandler provides a mock function with given fields: handler
 func (_m *WebSocket) AssignHandler(handler func(swaggerws.WebSocket, error)) swaggerws.WebSocket {
-	return nil
+	ret := _m.Called(handler)
+
+	var r0 swaggerws.WebSocket
+	if rf, ok := ret.Get(0).(func(func(swaggerws.WebSocket, error)) swaggerws.WebSocket); ok {
+		r0 = rf(handler)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(swaggerws.WebSocket)
+		}
+	}
+
+	return r0
 }
 
 // AssignPool provides a mock function with given fields: pool
 func (_m *WebSocket) AssignPool(pool swaggerws.SocketPool) swaggerws.WebSocket {
-	return nil
+	ret := _m.Called(pool)
+
+	var r0 swaggerws.WebSocket
+	if rf, ok := ret.Get(0).(func(swaggerws.SocketPool) swaggerws.WebSocket); ok {
+		r0 = rf(pool)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(swaggerws.WebSocket)
+		}
+	}
+
+	return r0
 }
 
 // Close provides a mock function with given fields: code, reason
@@ -40,7 +62,18 @@ func (_m *WebSocket) Close(code int, reason string) error {
 
 // GetHandler provides a mock function with given fields:
 func (_m *WebSocket) GetHandler() func(swaggerws.WebSocket, error) {
-	return nil
+	ret := _m.Called()
+
+	var r0 func(swaggerws.WebSocket, error)
+	if rf, ok := ret.Get(0).(func() func(swaggerws.WebSocket, error)); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(func(swaggerws.WebSocket, error))
+		}
+	}
+
+	return r0
 }
 
 // GetID provides a mock function with given fields:
@@ -61,27 +94,76 @@ func (_m *WebSocket) GetID() uuid.UUID {
 
 // IsClosed provides a mock function with given fields:
 func (_m *WebSocket) IsClosed() bool {
-	return false
+	ret := _m.Called()
+
+	var r0 bool
+	if rf, ok := ret.Get(0).(func() bool); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Get(0).(bool)
+	}
+
+	return r0
 }
 
 // Pool provides a mock function with given fields:
 func (_m *WebSocket) Pool() swaggerws.SocketPool {
-	return nil
+	ret := _m.Called()
+
+	var r0 swaggerws.SocketPool
+	if rf, ok := ret.Get(0).(func() swaggerws.SocketPool); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(swaggerws.SocketPool)
+		}
+	}
+
+	return r0
 }
 
 // Read provides a mock function with given fields:
 func (_m *WebSocket) Read() *swaggerws.WebSocketMessage {
-	return nil
+	ret := _m.Called()
+
+	var r0 *swaggerws.WebSocketMessage
+	if rf, ok := ret.Get(0).(func() *swaggerws.WebSocketMessage); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(*swaggerws.WebSocketMessage)
+		}
+	}
+
+	return r0
 }
 
 // Run provides a mock function with given fields:
 func (_m *WebSocket) Run() error {
-	return nil
+	ret := _m.Called()
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func() error); ok {
+		r0 = rf()
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // Send provides a mock function with given fields: message
 func (_m *WebSocket) Send(message []byte) error {
-	return nil
+	ret := _m.Called(message)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func([]byte) error); ok {
+		r0 = rf(message)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }
 
 // SetError provides a mock function with given fields: err
@@ -91,10 +173,30 @@ func (_m *WebSocket) SetError(err error) {
 
 // SetID provides a mock function with given fields: id
 func (_m *WebSocket) SetID(id uuid.UUID) swaggerws.WebSocket {
-	return nil
+	ret := _m.Called(id)
+
+	var r0 swaggerws.WebSocket
+	if rf, ok := ret.Get(0).(func(uuid.UUID) swaggerws.WebSocket); ok {
+		r0 = rf(id)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(swaggerws.WebSocket)
+		}
+	}
+
+	return r0
 }
 
 // WriteToHandler provides a mock function with given fields: message
 func (_m *WebSocket) WriteToHandler(message *swaggerws.WebSocketMessage) error {
-	return nil
+	ret := _m.Called(message)
+
+	var r0 error
+	if rf, ok := ret.Get(0).(func(*swaggerws.WebSocketMessage) error); ok {
+		r0 = rf(message)
+	} else {
+		r0 = ret.Error(0)
+	}
+
+	return r0
 }

@@ -48,9 +48,6 @@ func (smi *socketManagerImplementation) AppendPool(pool SocketPool) error {
 }
 
 func (smi *socketManagerImplementation) appendPool(pool SocketPool) error {
-	if smi.IsDestroyed() {
-		return ErrManagerDestroyed
-	}
 	return smi.pool.AppendPool(pool)
 }
 
@@ -110,13 +107,6 @@ func (smi *socketManagerImplementation) GetPoolById(poolID uuid.UUID) (SocketPoo
 }
 
 func (smi *socketManagerImplementation) getPoolById(poolID uuid.UUID) (SocketPool, error) {
-	if smi.IsDestroyed() {
-		return nil, ErrManagerDestroyed
-	}
-	if !smi.IsReady() {
-		return nil, ErrManagerDestroyed
-	}
-
 	return smi.pool.GetPoolByID(poolID)
 }
 

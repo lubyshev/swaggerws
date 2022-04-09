@@ -70,5 +70,12 @@ func Test_SocketManager(t *testing.T) {
 
 		_, err := m.GetPoolById(uuid.New())
 		assert.Equal(t, err, swaggerws.ErrManagerDestroyed)
+
+		_, err = m.GetOrCreatePool(uuid.New())
+		assert.Equal(t, err, swaggerws.ErrManagerDestroyed)
+
+		err = m.AppendPool(nil)
+		assert.Equal(t, err, swaggerws.ErrManagerDestroyed)
+
 	})
 }

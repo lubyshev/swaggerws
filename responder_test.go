@@ -111,7 +111,7 @@ func (rt *responderTester) testResponderMiddleware(socket swaggerws.WebSocket, e
 	//      Check "message stack is overflow" error
 	case 4:
 		assert.True(rt.t, errors.Is(err, swaggerws.ErrMessageStackOverflow))
-		_ = socket.Close(websocket.CloseInternalServerErr, "internal server error")
+		//_ = socket.Close(websocket.CloseInternalServerErr, "internal server error")
 		return false
 
 	// 4. Normal behavior

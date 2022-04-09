@@ -56,7 +56,5 @@ func (wsr *SocketResponder) WriteResponse(rw http.ResponseWriter, _ runtime.Prod
 			_ = socket.Close(websocket.CloseInternalServerErr, "internal server error")
 		}
 		return
-	} else {
-		panic ("here")
 	}
 }
