@@ -3,12 +3,11 @@ package swaggerws
 import (
 	"context"
 	"fmt"
-	"github.com/google/uuid"
-	"github.com/rs/zerolog/log"
 	"net/http"
 	"sync"
 	"time"
 
+	"github.com/google/uuid"
 	"github.com/gorilla/websocket"
 )
 
@@ -20,16 +19,13 @@ const (
 )
 
 const (
-	// Time allowed to write a message to the other side.
+	// writeWait Time allowed to write a message to the other side.
 	writeWait = 10 * time.Second
-
-	// Maximum message size allowed from the other side.
+	// maxMessageSize Maximum message size allowed from the other side.
 	maxMessageSize = 1024
-
-	// Time allowed to read the next pong message from the peer.
+	// pongWait Time allowed to read the next pong message from the peer.
 	pongWait = 30 * time.Second
-
-	// Send pings to peer with this period. Must be less than pongWait.
+	// pingPeriod Send pings to peer with this period. Must be less than pongWait.
 	pingPeriod = 28 * time.Second
 )
 
@@ -49,6 +45,7 @@ type WebSocket interface {
 	IsClosed() bool
 	Pool() SocketPool
 	Read() *WebSocketMessage
+	ResetPool() WebSocket
 	Run() error
 	Send(message []byte) error
 	SetError(err error)
@@ -56,7 +53,7 @@ type WebSocket interface {
 	WriteToHandler(message *WebSocketMessage) error
 }
 
-// WebSocketClient is a middleman between the websocket connection and the hub.
+// WebSocketClient is a connection from the client.
 type WebSocketClient struct {
 	id uuid.UUID
 
@@ -85,7 +82,8 @@ type WebSocketClient struct {
 	closed  bool // доступ должен быть защищён, т.к. его читают несколько потоков
 	mxClose sync.Mutex
 
-	useWG bool
+	useWG     bool
+	errorPool chan error
 }
 
 func NewWebSocket(
@@ -110,9 +108,8 @@ func NewWebSocket(
 	}
 	cl.conn, err = cl.upgrader.Upgrade(rw, req, nil)
 	if err != nil {
-		log.Err(err).Msg("fail to upgrade connection to websocket")
 		cl.syncContextCF()
-		return nil, err
+		return nil, fmt.Errorf("fail to upgrade connection to websocket: %w", err)
 	}
 
 	return cl, nil
@@ -161,7 +158,7 @@ func (c *WebSocketClient) Run() error {
 	c.runWg.Add(1)
 
 	if err := c.WriteToHandler(&WebSocketMessage{MsgTypeInit, nil}); err != nil {
-		return err
+		return fmt.Errorf("fail to send init message: %w", err)
 	}
 
 	c.runWg.Wait()
@@ -193,18 +190,23 @@ func (c *WebSocketClient) WriteToHandler(message *WebSocketMessage) error {
 }
 
 // Send The message will be sent over the websocket.
-func (c *WebSocketClient) Send(message []byte) error {
+func (c *WebSocketClient) Send(message []byte) (err error) {
 	defer func() {
-		_ = recover()
+		if r := recover(); r != nil {
+			switch r.(type) {
+			case error:
+				err = r.(error)
+			}
+		}
 	}()
 
 	select {
 	case c.send <- message:
 	default:
-		return ErrSendStackOverflow
+		err = ErrSendStackOverflow
 	}
 
-	return nil
+	return err
 }
 
 func (c *WebSocketClient) SetError(err error) {
@@ -214,6 +216,10 @@ func (c *WebSocketClient) SetError(err error) {
 }
 
 func (c *WebSocketClient) Read() *WebSocketMessage {
+	defer func() {
+		_ = recover()
+	}()
+
 	select {
 	case b := <-c.messages:
 		return b
@@ -221,6 +227,13 @@ func (c *WebSocketClient) Read() *WebSocketMessage {
 	}
 
 	return nil
+}
+
+func (c *WebSocketClient) ResetPool() WebSocket {
+	// c.AssignPool((*socketPoolImplementation)(nil))
+	c.pool = nil
+
+	return c
 }
 
 func (c *WebSocketClient) Close(code int, reason string) (err error) {
@@ -243,7 +256,10 @@ func (c *WebSocketClient) Close(code int, reason string) (err error) {
 	c.mxWrite.Unlock()
 
 	c.syncContextCF()
-	err = c.conn.Close()
+	if err = c.conn.Close(); err != nil {
+		err = fmt.Errorf("fail to close connection: %w", err)
+	}
+
 	c.syncWg.Wait()
 
 	close(c.send)
@@ -262,10 +278,11 @@ func (c *WebSocketClient) Close(code int, reason string) (err error) {
 // reads from this goroutine.
 func (c *WebSocketClient) readSocket(ctx context.Context) {
 	defer func() {
-		//c.log.Debug().Msgf("exit from the readSocket routine for websocket client '%s'", c.ID)
+		if err := recover(); err != nil {
+			go c.SetError(fmt.Errorf("read socket error: %w", err.(error)))
+		}
 		c.syncWg.Done()
 	}()
-	//c.log.Debug().Msgf("start readSocket routine for websocket client '%s'", c.ID)
 
 	c.conn.SetReadLimit(maxMessageSize)
 	_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
@@ -273,52 +290,15 @@ func (c *WebSocketClient) readSocket(ctx context.Context) {
 		_ = c.conn.SetReadDeadline(time.Now().Add(pongWait))
 		return nil
 	})
+
 	for {
 		select {
 		case <-ctx.Done():
 			return
 		default:
-			msgType, msg, err := c.conn.ReadMessage()
-			if _, ok := err.(*websocket.CloseError); ok {
-				//c.log.Debug().Err(err).Msg("close connection")
-				go c.SetError(fmt.Errorf(
-					"closed with: %s: %w",
-					err.Error(),
-					ErrSocketClosedByClient,
-				))
-				return
-			}
-
-			if err != nil {
-				//c.log.Warn().Err(err).
-				//	Msg("error reading message from websocket")
-				go c.SetError(fmt.Errorf(
-					"closed with: %s: %w",
-					err.Error(),
-					ErrInternalServerError,
-				))
-				return
-			}
-
-			if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
-				if len(msg) > 0 {
-					//c.log.Debug().
-					//	Msgf("message from client: %s", string(msg))
-					if err = c.WriteToHandler(&WebSocketMessage{
-						Type: MsgTypeSocket,
-						Msg:  msg,
-					}); err != nil {
-						//	c.log.Err(err).
-						//		Msgf("fail to send message to the message queue: %s", err.Error())
-					}
-				}
-			} else {
-				//c.log.Warn().
-				//	Msgf("unsupported message type %d from client: %s", msgType, string(msg))
-			}
+			c.processClientMessage(c.conn.ReadMessage())
 		}
 	}
-
 }
 
 // writeSocket pumps messages from the hub to the websocket connection.
@@ -329,11 +309,12 @@ func (c *WebSocketClient) readSocket(ctx context.Context) {
 func (c *WebSocketClient) writeSocket(ctx context.Context) {
 	ticker := time.NewTicker(pingPeriod)
 	defer func() {
-		//c.log.Debug().Msgf("exit from the writeSocket routine for websocket client '%s'", c.ID)
+		if err := recover(); err != nil {
+			go c.SetError(fmt.Errorf("write socket error: %w", err.(error)))
+		}
 		ticker.Stop()
 		c.syncWg.Done()
 	}()
-	//c.log.Debug().Msgf("start writeSocket routine for websocket client '%s'", c.ID)
 
 	for {
 		select {
@@ -341,35 +322,17 @@ func (c *WebSocketClient) writeSocket(ctx context.Context) {
 			return
 		case message, ok := <-c.send:
 			if ok {
-				c.mxWrite.Lock()
-				_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-				err := c.conn.WriteMessage(websocket.TextMessage, message)
-				c.mxWrite.Unlock()
-				if err != nil {
-					//c.log.Err(err).Msgf("fail to send message: '%s'", string(message))
-				}
+				c.sendMessageToClient(message)
 			}
 		case <-ticker.C:
 			// send PING message
-			c.mxWrite.Lock()
-			_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
-			if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
-				// fail to get PONG response
-				go c.SetError(fmt.Errorf("fail to get PONG response: %w", err))
-				return
-			}
-			// get PONG response
-			c.mxWrite.Unlock()
+			c.sendPing()
 		}
 	}
 }
 
 func (c *WebSocketClient) messageQueue(ctx context.Context) {
-	defer func() {
-		//c.log.Debug().Msgf("exit from the messageQueue routine for websocket client '%s'", c.ID)
-		c.syncWg.Done()
-	}()
-	//c.log.Debug().Msgf("start messageQueue routine for websocket client '%s'", c.ID)
+	defer c.syncWg.Done()
 
 	for {
 		select {
@@ -377,13 +340,76 @@ func (c *WebSocketClient) messageQueue(ctx context.Context) {
 			return
 		case _, ok := <-c.recv:
 			if !ok {
-				//c.log.Err(ErrMessageQueueRead).Msgf("failed to read from message queue: '%s'", c.ID)
+				go c.SetError(fmt.Errorf(
+					"fail to read message stack: %w", ErrInternalServerError,
+				))
 				return
 			}
-			//c.log.Debug().Msgf("messageQueue got message: '%s'", c.ID)
 			if hnd := c.GetHandler(); hnd != nil {
 				hnd(c, nil)
 			}
 		}
 	}
+}
+
+func (c *WebSocketClient) processClientMessage(msgType int, msg []byte, err error) {
+	if _, ok := err.(*websocket.CloseError); ok {
+		go c.SetError(fmt.Errorf(
+			"socket is closed with error: %s: %w",
+			err.Error(), ErrSocketClosedByClient,
+		))
+		if !c.IsClosed() {
+			_ = c.Close(websocket.CloseNormalClosure, "socket closed from other side")
+		}
+		return
+	}
+
+	if err != nil {
+		go c.SetError(fmt.Errorf(
+			"socket read error: %s: %w", err.Error(), ErrInternalServerError,
+		))
+		return
+	}
+
+	if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
+		if len(msg) > 0 {
+			if err = c.WriteToHandler(&WebSocketMessage{
+				Type: MsgTypeSocket,
+				Msg:  msg,
+			}); err != nil {
+				go c.SetError(fmt.Errorf(
+					"fail to write message into the stack: %w",
+					err,
+				))
+			}
+		}
+	}
+}
+
+func (c *WebSocketClient) sendMessageToClient(message []byte) {
+	c.mxWrite.Lock()
+	defer c.mxWrite.Unlock()
+
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	err := c.conn.WriteMessage(websocket.TextMessage, message)
+	if err != nil {
+		go c.SetError(fmt.Errorf(
+			"fail to send message to client: %s: %w",
+			string(message), err,
+		))
+	}
+}
+
+func (c *WebSocketClient) sendPing() {
+	c.mxWrite.Lock()
+	defer c.mxWrite.Unlock()
+
+	_ = c.conn.SetWriteDeadline(time.Now().Add(writeWait))
+	// get PONG response
+	if err := c.conn.WriteMessage(websocket.PingMessage, nil); err != nil {
+		// fail to get PONG response
+		go c.SetError(fmt.Errorf("fail to get PONG response: %w", err))
+		return
+	}
+
 }

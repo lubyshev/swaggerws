@@ -1,9 +1,10 @@
 package swaggerws
 
 import (
-	"github.com/google/uuid"
 	"sync"
 	"sync/atomic"
+
+	"github.com/google/uuid"
 )
 
 type SocketPool interface {
@@ -12,10 +13,12 @@ type SocketPool interface {
 	AppendSocket(WebSocket) error
 	AssignSocketManager(SocketManager) SocketPool
 	Clear()
+	DeletePool(id uuid.UUID) error
+	DeleteSocket(id uuid.UUID) error
 	GetAllSockets() <-chan WebSocket
 	GetID() uuid.UUID
-	GetPoolByID(uuid.UUID) (SocketPool, error)
-	GetSocketByID(uuid.UUID) (WebSocket, error)
+	GetPool(uuid.UUID) (SocketPool, error)
+	GetSocket(uuid.UUID) (WebSocket, error)
 	PoolsCount() int64
 	PoolsRange() <-chan SocketPool
 	SocketsCount() int64
@@ -104,13 +107,38 @@ func (si *socketPoolImplementation) Clear() {
 		return true
 	})
 	si.sockets.Range(func(key, value interface{}) bool {
+		value.(WebSocket).ResetPool()
 		si.sockets.Delete(key)
 		atomic.AddInt64(&si.socketsCount, -1)
 		return true
 	})
 }
 
-func (si *socketPoolImplementation) GetPoolByID(id uuid.UUID) (SocketPool, error) {
+func (si *socketPoolImplementation) DeletePool(id uuid.UUID) error {
+	if p, err := si.GetPool(id); err != nil {
+		return err
+	} else {
+		p.Clear()
+	}
+	si.pools.Delete(id)
+	atomic.AddInt64(&si.poolsCount, -1)
+
+	return nil
+}
+
+func (si *socketPoolImplementation) DeleteSocket(id uuid.UUID) error {
+	if s, err := si.GetSocket(id); err != nil {
+		return err
+	} else {
+		s.ResetPool()
+	}
+	si.sockets.Delete(id)
+	atomic.AddInt64(&si.socketsCount, -1)
+
+	return nil
+}
+
+func (si *socketPoolImplementation) GetPool(id uuid.UUID) (SocketPool, error) {
 	if p, ok := si.pools.Load(id); ok {
 		return p.(SocketPool), nil
 	}
@@ -118,7 +146,7 @@ func (si *socketPoolImplementation) GetPoolByID(id uuid.UUID) (SocketPool, error
 	return nil, ErrPoolNotFoundInContainer
 }
 
-func (si *socketPoolImplementation) GetSocketByID(id uuid.UUID) (WebSocket, error) {
+func (si *socketPoolImplementation) GetSocket(id uuid.UUID) (WebSocket, error) {
 	if p, ok := si.sockets.Load(id); ok {
 		return p.(WebSocket), nil
 	}
@@ -127,7 +155,7 @@ func (si *socketPoolImplementation) GetSocketByID(id uuid.UUID) (WebSocket, erro
 }
 
 func (si *socketPoolImplementation) PoolsCount() int64 {
-	return si.poolsCount
+	return atomic.LoadInt64(&si.poolsCount)
 }
 
 func (si *socketPoolImplementation) PoolsRange() <-chan SocketPool {
@@ -144,7 +172,7 @@ func (si *socketPoolImplementation) PoolsRange() <-chan SocketPool {
 }
 
 func (si *socketPoolImplementation) SocketsCount() int64 {
-	return si.socketsCount
+	return atomic.LoadInt64(&si.socketsCount)
 }
 
 func (si *socketPoolImplementation) SocketManager() SocketManager {

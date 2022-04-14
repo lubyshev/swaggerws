@@ -21,11 +21,11 @@ func Test_SocketManager(t *testing.T) {
 		err = m.AppendPool(p)
 		assert.Equal(t, swaggerws.ErrPoolAlreadyInContainer, err)
 
-		pp, err := m.GetPoolById(id)
+		pp, err := m.GetPool(id)
 		assert.NoError(t, err)
 		assert.Equal(t, p, pp)
 
-		_, err = m.GetPoolById(uuid.New())
+		_, err = m.GetPool(uuid.New())
 		assert.Equal(t, swaggerws.ErrPoolNotFoundInContainer, err)
 	})
 
@@ -35,12 +35,17 @@ func Test_SocketManager(t *testing.T) {
 		m := swaggerws.NewSocketManager()
 		id := uuid.New()
 
-		p, err := m.GetOrCreatePool(id)
+		p, created, err := m.GetOrCreatePool(id)
 		assert.NoError(t, err)
+		assert.True(t, created)
 		err = m.AppendPool(p)
 		assert.Equal(t, swaggerws.ErrPoolAlreadyInContainer, err)
+		pp, created, err := m.GetOrCreatePool(id)
+		assert.NoError(t, err)
+		assert.False(t, created)
+		assert.Equal(t, p, pp)
 
-		pp, err := m.GetPoolById(id)
+		pp, err = m.GetPool(id)
 		assert.NoError(t, err)
 		assert.Equal(t, p, pp)
 	})
@@ -68,10 +73,10 @@ func Test_SocketManager(t *testing.T) {
 		assert.Equal(t, 1, len(errs))
 		assert.Equal(t, swaggerws.ErrManagerDestroyed, <-errs)
 
-		_, err := m.GetPoolById(uuid.New())
+		_, err := m.GetPool(uuid.New())
 		assert.Equal(t, err, swaggerws.ErrManagerDestroyed)
 
-		_, err = m.GetOrCreatePool(uuid.New())
+		_, _, err = m.GetOrCreatePool(uuid.New())
 		assert.Equal(t, err, swaggerws.ErrManagerDestroyed)
 
 		err = m.AppendPool(nil)

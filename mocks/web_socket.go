@@ -14,6 +14,22 @@ type WebSocket struct {
 	mock.Mock
 }
 
+// AssignErrorPool provides a mock function with given fields: _a0
+func (_m *WebSocket) AssignErrorPool(_a0 chan error) swaggerws.WebSocket {
+	ret := _m.Called(_a0)
+
+	var r0 swaggerws.WebSocket
+	if rf, ok := ret.Get(0).(func(chan error) swaggerws.WebSocket); ok {
+		r0 = rf(_a0)
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(swaggerws.WebSocket)
+		}
+	}
+
+	return r0
+}
+
 // AssignHandler provides a mock function with given fields: handler
 func (_m *WebSocket) AssignHandler(handler func(swaggerws.WebSocket, error)) swaggerws.WebSocket {
 	ret := _m.Called(handler)
@@ -132,6 +148,22 @@ func (_m *WebSocket) Read() *swaggerws.WebSocketMessage {
 	} else {
 		if ret.Get(0) != nil {
 			r0 = ret.Get(0).(*swaggerws.WebSocketMessage)
+		}
+	}
+
+	return r0
+}
+
+// ResetPool provides a mock function with given fields:
+func (_m *WebSocket) ResetPool() swaggerws.WebSocket {
+	ret := _m.Called()
+
+	var r0 swaggerws.WebSocket
+	if rf, ok := ret.Get(0).(func() swaggerws.WebSocket); ok {
+		r0 = rf()
+	} else {
+		if ret.Get(0) != nil {
+			r0 = ret.Get(0).(swaggerws.WebSocket)
 		}
 	}
 

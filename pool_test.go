@@ -20,6 +20,10 @@ func Test_SocketPool(t *testing.T) {
 		socket := &mocks.WebSocket{}
 		socket.On("GetID").Return(socketID)
 		assert.Equal(t, socketID, socket.GetID())
+		socket.On(
+			"AssignPool", mock.AnythingOfType("*swaggerws.socketPoolImplementation"),
+		).Return(socket)
+		socket.On("ResetPool").Return(socket)
 
 		socket2ID := uuid.New()
 		socket2 := &mocks.WebSocket{}
@@ -30,7 +34,7 @@ func Test_SocketPool(t *testing.T) {
 
 		err = pool.AppendSocket(socket)
 		assert.NoError(t, err)
-		s, err = pool.GetSocketByID(socketID)
+		s, err = pool.GetSocket(socketID)
 		assert.NoError(t, err)
 		assert.Equal(t, socket, s)
 		err = pool.AppendSocket(socket)
@@ -39,19 +43,27 @@ func Test_SocketPool(t *testing.T) {
 
 		err = pool.AppendSocket(socket2)
 		assert.NoError(t, err)
-		s, err = pool.GetSocketByID(socket2ID)
+		s, err = pool.GetSocket(socket2ID)
 		assert.NoError(t, err)
 		assert.Equal(t, socket2, s)
 		err = pool.AppendSocket(socket2)
 		assert.Equal(t, swaggerws.ErrSocketAlreadyInPool, err)
 		assert.Equal(t, socket2, s)
 
-		s, err = pool.GetSocketByID(uuid.New())
+		s, err = pool.GetSocket(uuid.New())
 		assert.Equal(t, swaggerws.ErrSocketNotFoundInPool, err)
 		assert.Equal(t, nil, s)
 
 		assert.Equal(t, int64(2), pool.SocketsCount())
 		assert.Equal(t, int64(2), pool.AllSocketsCount())
+
+		err = pool.DeleteSocket(socketID)
+		assert.NoError(t, err)
+		s, err = pool.GetSocket(uuid.New())
+		assert.Equal(t, swaggerws.ErrSocketNotFoundInPool, err)
+		assert.Equal(t, nil, s)
+		err = pool.DeleteSocket(socketID)
+		assert.Equal(t, swaggerws.ErrSocketNotFoundInPool, err)
 	})
 
 	t.Run("test AppendPool() method", func(t *testing.T) {
@@ -60,29 +72,37 @@ func Test_SocketPool(t *testing.T) {
 
 		var pp swaggerws.SocketPool
 		var pCnt int64
+		var lsCnt int64
+		var id uuid.UUID
 		sCnt := pool.AllSocketsCount()
 		for pCnt = 0; pCnt < int64(2+rand.Intn(5)); pCnt++ {
-			id := uuid.New()
+			id = uuid.New()
 			p, cnt, _ := getNewPool(id)
+			lsCnt = cnt
 			sCnt += cnt
 
 			err = pool.AppendPool(p)
 			assert.NoError(t, err)
-			pp, err = pool.GetPoolByID(id)
+			pp, err = pool.GetPool(id)
 			assert.NoError(t, err)
 			assert.Equal(t, p, pp)
 			err = pool.AppendPool(p)
 			assert.Equal(t, swaggerws.ErrPoolAlreadyInContainer, err)
 			assert.Equal(t, p, pp)
 
-			pp, err = pool.GetPoolByID(uuid.New())
+			pp, err = pool.GetPool(uuid.New())
 			assert.Equal(t, swaggerws.ErrPoolNotFoundInContainer, err)
 			assert.Equal(t, nil, pp)
 
 			assert.Equal(t, cnt, p.SocketsCount())
 		}
-		assert.Equal(t, sCnt, pool.AllSocketsCount())
-		assert.Equal(t, pCnt, pool.PoolsCount())
+		err = pool.DeletePool(id)
+		assert.NoError(t, err)
+		err = pool.DeletePool(id)
+		assert.Equal(t, swaggerws.ErrPoolNotFoundInContainer, err)
+
+		assert.Equal(t, sCnt-lsCnt, pool.AllSocketsCount())
+		assert.Equal(t, pCnt-1, pool.PoolsCount())
 	})
 
 	t.Run("test Range() methods", func(t *testing.T) {
@@ -196,6 +216,10 @@ func getNewPool(id uuid.UUID) (swaggerws.SocketPool, int64, map[uuid.UUID]swagge
 			mock.AnythingOfType("int"),
 			mock.AnythingOfType("string"),
 		).Return(err)
+		socket.On(
+			"AssignPool", mock.AnythingOfType("*swaggerws.socketPoolImplementation"),
+		).Return(socket)
+		socket.On("ResetPool").Return(socket)
 		sockets[socketID] = socket
 		_ = pool.AppendSocket(socket)
 	}

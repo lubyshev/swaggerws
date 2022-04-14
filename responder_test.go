@@ -6,7 +6,6 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/lubyshev/swaggerws"
 	"github.com/stretchr/testify/assert"
-	"log"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -79,14 +78,13 @@ type responderTester struct {
 
 func (rt *responderTester) testResponderMiddleware(socket swaggerws.WebSocket, err error) bool {
 	rt.middlewareCalls++
-	log.Printf("--> middleware called %d times\n", rt.middlewareCalls)
 
 	switch rt.middlewareCalls {
 	// 1. Invalid connection
 	case 1:
 		assert.Equal(rt.t,
-			errors.Unwrap(err).Error(),
 			"websocket: the client is not using the websocket protocol: 'upgrade' token not found in 'Connection' header",
+			errors.Unwrap(errors.Unwrap(err)).Error(),
 		)
 		return false
 
@@ -107,11 +105,10 @@ func (rt *responderTester) testResponderMiddleware(socket swaggerws.WebSocket, e
 			err = socket.WriteToHandler(msg)
 		}
 
-	// 3.1. Fail to run websocket in the responder
+	// 3.2. Fail to run websocket in the responder
 	//      Check "message stack is overflow" error
 	case 4:
 		assert.True(rt.t, errors.Is(err, swaggerws.ErrMessageStackOverflow))
-		//_ = socket.Close(websocket.CloseInternalServerErr, "internal server error")
 		return false
 
 	// 4. Normal behavior
@@ -128,6 +125,9 @@ func (rt *responderTester) testResponderMiddleware(socket swaggerws.WebSocket, e
 		rt.pool = socket.Pool()
 		assert.Equal(rt.t, id, rt.socketID)
 		assert.Equal(rt.t, poolID, rt.pool.GetID())
+		s := socket.ResetPool()
+		assert.Equal(rt.t, socket, s)
+		assert.Equal(rt.t, nil, socket.Pool())
 	}
 
 	return true
@@ -136,11 +136,10 @@ func (rt *responderTester) testResponderMiddleware(socket swaggerws.WebSocket, e
 func (rt *responderTester) testSocketHandler(socket swaggerws.WebSocket, err error) {
 	var msg *swaggerws.WebSocketMessage
 	rt.handlerCalls++
-	log.Printf("--> handler called %d times\n", rt.handlerCalls)
+
 	if err == nil {
 		msg = socket.Read()
 		assert.Equal(rt.t, (*swaggerws.WebSocketMessage)(nil), socket.Read())
-		log.Printf("--> handler calls with msg = %+v\n", msg)
 	}
 	switch rt.handlerCalls {
 	// 3.1 Normal behavior: Init message
@@ -169,7 +168,6 @@ func (rt *responderTester) testSocketHandler(socket swaggerws.WebSocket, err err
 }
 
 func (rt *responderTester) testClientMessages(counter int, conn *websocket.Conn, msg string) {
-	log.Printf("--> client calls %d with '%s'\n", counter, msg)
 	switch counter {
 	// 4. Normal behavior: Init message
 	case 1:

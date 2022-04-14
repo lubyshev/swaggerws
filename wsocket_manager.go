@@ -1,10 +1,11 @@
 package swaggerws
 
 import (
-	"github.com/google/uuid"
-	"github.com/gorilla/websocket"
 	"sync"
 	"sync/atomic"
+
+	"github.com/google/uuid"
+	"github.com/gorilla/websocket"
 )
 
 const (
@@ -15,8 +16,8 @@ const (
 type SocketManager interface {
 	AppendPool(pool SocketPool) error
 	Destroy() chan error
-	GetOrCreatePool(poolID uuid.UUID) (SocketPool, error)
-	GetPoolById(poolID uuid.UUID) (SocketPool, error)
+	GetOrCreatePool(poolID uuid.UUID) (SocketPool, bool, error)
+	GetPool(poolID uuid.UUID) (SocketPool, error)
 	IsDestroyed() bool
 	IsReady() bool
 }
@@ -40,9 +41,7 @@ func (smi *socketManagerImplementation) AppendPool(pool SocketPool) error {
 		return ErrManagerDestroyed
 	}
 	smi.mxPools.Lock()
-	defer func() {
-		smi.mxPools.Unlock()
-	}()
+	defer smi.mxPools.Unlock()
 
 	return smi.appendPool(pool)
 }
@@ -79,9 +78,9 @@ func (smi *socketManagerImplementation) Destroy() (chErrors chan error) {
 	return
 }
 
-func (smi *socketManagerImplementation) GetOrCreatePool(poolID uuid.UUID) (pool SocketPool, err error) {
+func (smi *socketManagerImplementation) GetOrCreatePool(poolID uuid.UUID) (pool SocketPool, isNew bool, err error) {
 	if smi.IsDestroyed() {
-		return nil, ErrManagerDestroyed
+		return nil, false, ErrManagerDestroyed
 	}
 	smi.mxPools.Lock()
 	defer smi.mxPools.Unlock()
@@ -91,12 +90,13 @@ func (smi *socketManagerImplementation) GetOrCreatePool(poolID uuid.UUID) (pool 
 		pool = NewSocketPool(poolID)
 		err = smi.appendPool(pool)
 		pool.AssignSocketManager(smi)
+		isNew = true
 	}
 
 	return
 }
 
-func (smi *socketManagerImplementation) GetPoolById(poolID uuid.UUID) (SocketPool, error) {
+func (smi *socketManagerImplementation) GetPool(poolID uuid.UUID) (SocketPool, error) {
 	if smi.IsDestroyed() {
 		return nil, ErrManagerDestroyed
 	}
@@ -107,7 +107,7 @@ func (smi *socketManagerImplementation) GetPoolById(poolID uuid.UUID) (SocketPoo
 }
 
 func (smi *socketManagerImplementation) getPoolById(poolID uuid.UUID) (SocketPool, error) {
-	return smi.pool.GetPoolByID(poolID)
+	return smi.pool.GetPool(poolID)
 }
 
 func (smi *socketManagerImplementation) IsReady() bool {

@@ -2,11 +2,11 @@ package swaggerws
 
 import (
 	"fmt"
-	"github.com/go-openapi/runtime/middleware"
-	"github.com/gorilla/websocket"
 	"net/http"
 
 	"github.com/go-openapi/runtime"
+	"github.com/go-openapi/runtime/middleware"
+	"github.com/gorilla/websocket"
 )
 
 type ResponderMiddlewareFunc = func(socket WebSocket, err error) bool
