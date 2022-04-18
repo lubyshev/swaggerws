@@ -42,7 +42,7 @@ func (ws *wsClient) Run(url string, rt *responderTester) {
 				return
 			}
 			if len(message) > 0 {
-				rt.testClientMessages(readCounter, c, string(message))
+				rt.testClientMessage(readCounter, c, string(message))
 			}
 		}
 	}()

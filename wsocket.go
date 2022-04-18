@@ -40,17 +40,17 @@ type WebSocket interface {
 	AssignHandler(handler WebSocketHandlerFunc) WebSocket
 	AssignPool(pool SocketPool) WebSocket
 	Close(code int, reason string) error
-	GetHandler() WebSocketHandlerFunc
+	Handler() WebSocketHandlerFunc
 	GetID() uuid.UUID
 	IsClosed() bool
 	Pool() SocketPool
 	Read() *WebSocketMessage
 	ResetPool() WebSocket
+	PushMessage(message *WebSocketMessage) error
 	Run() error
 	Send(message []byte) error
 	SetError(err error)
 	SetID(id uuid.UUID) WebSocket
-	WriteToHandler(message *WebSocketMessage) error
 }
 
 // WebSocketClient is a connection from the client.
@@ -131,7 +131,7 @@ func (c *WebSocketClient) GetID() uuid.UUID {
 	return c.id
 }
 
-func (c *WebSocketClient) GetHandler() WebSocketHandlerFunc {
+func (c *WebSocketClient) Handler() WebSocketHandlerFunc {
 	return c.handler
 }
 
@@ -146,35 +146,10 @@ func (c *WebSocketClient) Pool() SocketPool {
 	return c.pool
 }
 
-func (c *WebSocketClient) Run() error {
-	c.useWG = true
-	c.syncWg.Add(1)
-	go c.writeSocket(c.syncContext)
-	c.syncWg.Add(1)
-	go c.messageQueue(c.syncContext)
-	c.syncWg.Add(1)
-	go c.readSocket(c.syncContext)
-	// add one more to prevent exit before ::close()
-	c.runWg.Add(1)
-
-	if err := c.WriteToHandler(&WebSocketMessage{MsgTypeInit, nil}); err != nil {
-		return fmt.Errorf("fail to send init message: %w", err)
-	}
-
-	c.runWg.Wait()
-
-	return nil
-}
-func (c *WebSocketClient) SetID(id uuid.UUID) WebSocket {
-	c.id = id
-
-	return c
-}
-
-// WriteToHandler Emulates reading a message from a socket.
+// PushMessage Emulates reading a message from a socket.
 // The message will be put into the received message queue.
 // Handler function will be called.
-func (c *WebSocketClient) WriteToHandler(message *WebSocketMessage) error {
+func (c *WebSocketClient) PushMessage(message *WebSocketMessage) error {
 	defer func() {
 		_ = recover()
 	}()
@@ -187,6 +162,31 @@ func (c *WebSocketClient) WriteToHandler(message *WebSocketMessage) error {
 	c.recv <- struct{}{}
 
 	return nil
+}
+
+func (c *WebSocketClient) Run() error {
+	c.useWG = true
+	c.syncWg.Add(1)
+	go c.writeSocket(c.syncContext)
+	c.syncWg.Add(1)
+	go c.messageQueue(c.syncContext)
+	c.syncWg.Add(1)
+	go c.readSocket(c.syncContext)
+	// add one more to prevent exit before ::close()
+	c.runWg.Add(1)
+
+	if err := c.PushMessage(&WebSocketMessage{MsgTypeInit, nil}); err != nil {
+		return fmt.Errorf("fail to send init message: %w", err)
+	}
+
+	c.runWg.Wait()
+
+	return nil
+}
+func (c *WebSocketClient) SetID(id uuid.UUID) WebSocket {
+	c.id = id
+
+	return c
 }
 
 // Send The message will be sent over the websocket.
@@ -210,7 +210,7 @@ func (c *WebSocketClient) Send(message []byte) (err error) {
 }
 
 func (c *WebSocketClient) SetError(err error) {
-	if hnd := c.GetHandler(); hnd != nil {
+	if hnd := c.Handler(); hnd != nil {
 		hnd(c, err)
 	}
 }
@@ -230,7 +230,6 @@ func (c *WebSocketClient) Read() *WebSocketMessage {
 }
 
 func (c *WebSocketClient) ResetPool() WebSocket {
-	// c.AssignPool((*socketPoolImplementation)(nil))
 	c.pool = nil
 
 	return c
@@ -239,10 +238,10 @@ func (c *WebSocketClient) ResetPool() WebSocket {
 func (c *WebSocketClient) Close(code int, reason string) (err error) {
 	c.mxClose.Lock()
 	defer func() {
-		if !c.closed && c.useWG {
+		if c.useWG {
 			c.runWg.Done()
-			c.closed = true
 		}
+		c.closed = true
 		c.mxClose.Unlock()
 	}()
 	if c.closed {
@@ -315,7 +314,7 @@ func (c *WebSocketClient) writeSocket(ctx context.Context) {
 		ticker.Stop()
 		c.syncWg.Done()
 	}()
-
+	c.sendPing()
 	for {
 		select {
 		case <-ctx.Done():
@@ -345,7 +344,7 @@ func (c *WebSocketClient) messageQueue(ctx context.Context) {
 				))
 				return
 			}
-			if hnd := c.GetHandler(); hnd != nil {
+			if hnd := c.Handler(); hnd != nil {
 				hnd(c, nil)
 			}
 		}
@@ -373,7 +372,7 @@ func (c *WebSocketClient) processClientMessage(msgType int, msg []byte, err erro
 
 	if msgType == websocket.TextMessage || msgType == websocket.BinaryMessage {
 		if len(msg) > 0 {
-			if err = c.WriteToHandler(&WebSocketMessage{
+			if err = c.PushMessage(&WebSocketMessage{
 				Type: MsgTypeSocket,
 				Msg:  msg,
 			}); err != nil {

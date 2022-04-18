@@ -8,7 +8,7 @@ import (
 )
 
 type SocketPool interface {
-	AllSocketsCount() int64
+	AllSocketCount() int64
 	AppendPool(SocketPool) error
 	AppendSocket(WebSocket) error
 	AssignSocketManager(SocketManager) SocketPool
@@ -19,11 +19,12 @@ type SocketPool interface {
 	GetID() uuid.UUID
 	GetPool(uuid.UUID) (SocketPool, error)
 	GetSocket(uuid.UUID) (WebSocket, error)
+	Manager() SocketManager
 	PoolsCount() int64
-	PoolsRange() <-chan SocketPool
+	PoolRange() <-chan SocketPool
+	ResetManager() SocketPool
 	SocketsCount() int64
-	SocketManager() SocketManager
-	SocketsRange() <-chan WebSocket
+	SocketRange() <-chan WebSocket
 }
 
 type socketPoolImplementation struct {
@@ -41,13 +42,13 @@ func NewSocketPool(socketId uuid.UUID) SocketPool {
 	}
 }
 
-func (si *socketPoolImplementation) AllSocketsCount() (cnt int64) {
+func (si *socketPoolImplementation) AllSocketCount() (cnt int64) {
 	if si.poolsCount == 0 && si.socketsCount == 0 {
 		return
 	}
 
-	for p := range si.PoolsRange() {
-		cnt += p.AllSocketsCount()
+	for p := range si.PoolRange() {
+		cnt += p.AllSocketCount()
 	}
 
 	return cnt + si.socketsCount
@@ -81,10 +82,10 @@ func (si *socketPoolImplementation) AssignSocketManager(socketManager SocketMana
 func (si *socketPoolImplementation) GetAllSockets() <-chan WebSocket {
 	ch := make(chan WebSocket)
 	go func() {
-		for s := range si.SocketsRange() {
+		for s := range si.SocketRange() {
 			ch <- s
 		}
-		for p := range si.PoolsRange() {
+		for p := range si.PoolRange() {
 			for s := range p.GetAllSockets() {
 				ch <- s
 			}
@@ -154,11 +155,15 @@ func (si *socketPoolImplementation) GetSocket(id uuid.UUID) (WebSocket, error) {
 	return nil, ErrSocketNotFoundInPool
 }
 
+func (si *socketPoolImplementation) Manager() SocketManager {
+	return si.socketManager
+}
+
 func (si *socketPoolImplementation) PoolsCount() int64 {
 	return atomic.LoadInt64(&si.poolsCount)
 }
 
-func (si *socketPoolImplementation) PoolsRange() <-chan SocketPool {
+func (si *socketPoolImplementation) PoolRange() <-chan SocketPool {
 	ch := make(chan SocketPool)
 	go func() {
 		si.pools.Range(func(key, value interface{}) bool {
@@ -171,15 +176,17 @@ func (si *socketPoolImplementation) PoolsRange() <-chan SocketPool {
 	return ch
 }
 
+func (si *socketPoolImplementation) ResetManager() SocketPool {
+	si.socketManager = nil
+
+	return si
+}
+
 func (si *socketPoolImplementation) SocketsCount() int64 {
 	return atomic.LoadInt64(&si.socketsCount)
 }
 
-func (si *socketPoolImplementation) SocketManager() SocketManager {
-	return si.socketManager
-}
-
-func (si *socketPoolImplementation) SocketsRange() <-chan WebSocket {
+func (si *socketPoolImplementation) SocketRange() <-chan WebSocket {
 	ch := make(chan WebSocket)
 	go func() {
 		si.sockets.Range(func(key, value interface{}) bool {

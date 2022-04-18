@@ -7,14 +7,13 @@ import (
 	"github.com/lubyshev/swaggerws"
 	"github.com/stretchr/testify/assert"
 	"net/http"
-	"net/http/httptest"
-	"strings"
+	"sync"
 	"testing"
 )
 
 const (
 	msgHello  = "hello!"
-	msgClient = "im a client!"
+	msgClient = "im client!"
 )
 
 func Test_SwaggerResponder_Constructor_FAIL(t *testing.T) {
@@ -35,33 +34,33 @@ func Test_SwaggerResponder_Constructor_OK(t *testing.T) {
 	_ = swaggerws.NewSocketResponder(nil, fakeResponderMiddleware)
 }
 
+
 func Test_SwaggerResponder_WriteResponse(t *testing.T) {
-	rt := &responderTester{t: t}
-	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		swagger := swaggerws.NewSocketResponder(r, rt.testResponderMiddleware)
-		swagger.WriteResponse(w, nil)
-	}))
+	wg := &sync.WaitGroup{}
+	ts, url, rt := server(t, cbResponderTest, wg)
 	defer ts.Close()
+	url = "ws://" + url
 
 	// 1. Invalid connection
 	r, _ := http.Get(ts.URL)
 	_ = r.Body.Close()
 
-	// prepare web socket connection
-	parts := strings.Split(ts.URL, "://")
-	wsUrl := "ws://" + parts[1]
-
 	// 2. Invalid middleware answer
 	cl := newWsClient()
-	cl.Run(wsUrl, rt)
+	cl.Run(url, rt)
 
 	// 3. Fail to run websocket in the responder
 	cl = newWsClient()
-	cl.Run(wsUrl, rt)
+	cl.Run(url, rt)
 
 	// 4. Normal behavior
 	cl = newWsClient()
-	cl.Run(wsUrl, rt)
+	cl.Run(url, rt)
+}
+
+func cbResponderTest(w http.ResponseWriter, rq *http.Request, rt *responderTester, _ *sync.WaitGroup) {
+	swagger := swaggerws.NewSocketResponder(rq, rt.testResponderMiddleware)
+	swagger.WriteResponse(w, nil)
 }
 
 func fakeResponderMiddleware(swaggerws.WebSocket, error) bool {
@@ -72,6 +71,7 @@ type responderTester struct {
 	t               *testing.T
 	socketID        uuid.UUID
 	pool            swaggerws.SocketPool
+	manager         swaggerws.SocketManager
 	middlewareCalls int
 	handlerCalls    int
 }
@@ -102,7 +102,7 @@ func (rt *responderTester) testResponderMiddleware(socket swaggerws.WebSocket, e
 			Msg:  "stack overflow message",
 		}
 		for i := 0; i < 9; i++ {
-			err = socket.WriteToHandler(msg)
+			err = socket.PushMessage(msg)
 		}
 
 	// 3.2. Fail to run websocket in the responder
@@ -167,9 +167,9 @@ func (rt *responderTester) testSocketHandler(socket swaggerws.WebSocket, err err
 	}
 }
 
-func (rt *responderTester) testClientMessages(counter int, conn *websocket.Conn, msg string) {
+func (rt *responderTester) testClientMessage(counter int, conn *websocket.Conn, msg string) {
 	switch counter {
-	// 4. Normal behavior: Init message
+	// 4. Normal behavior: Hello message
 	case 1:
 		assert.Equal(rt.t, msgHello, msg)
 		err := conn.WriteMessage(websocket.TextMessage, []byte(msgClient))

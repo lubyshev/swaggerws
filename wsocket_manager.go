@@ -61,14 +61,17 @@ func (smi *socketManagerImplementation) Destroy() (chErrors chan error) {
 		close(chErrors)
 	} else {
 		smi.markAsDestroyed()
-		chErrors = make(chan error, smi.pool.AllSocketsCount())
+		chErrors = make(chan error, smi.pool.AllSocketCount())
 		go func() {
 			for socket := range smi.pool.GetAllSockets() {
-				if err := socket.Close(websocket.CloseGoingAway, "server shutdown"); err != nil {
-					chErrors <- err
+				if !socket.IsClosed() {
+					err := socket.Close(websocket.CloseGoingAway, "server shutdown");
+					if err != nil {
+						chErrors <- err
+					}
 				}
 			}
-			for pool := range smi.pool.PoolsRange() {
+			for pool := range smi.pool.PoolRange() {
 				pool.Clear()
 			}
 			close(chErrors)
